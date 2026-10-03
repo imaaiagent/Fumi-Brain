@@ -7,16 +7,20 @@ app.use(express.json({ limit: "32kb" }));
 const port = Number(process.env.PORT || 3000);
 const model = process.env.OPENAI_MODEL || "gpt-5";
 
+console.log("=================================");
+console.log("FUMI AI BRAIN STARTING...");
+console.log("Model:", model);
+console.log("API KEY:", process.env.OPENAI_API_KEY ? "SET" : "MISSING");
+console.log("=================================");
+
 if (!process.env.OPENAI_API_KEY) {
-  console.warn("OPENAI_API_KEY is not set.");
+  console.warn("[WARNING] OPENAI_API_KEY is not set.");
 }
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Short-lived memory for the prototype.
-// Replace with SQLite/Postgres later for durable memory.
 const memories = new Map();
 
 const allowedActions = [
@@ -51,7 +55,8 @@ function cleanMessage(value) {
 }
 
 function buildPrompt(state, memory) {
-  const day = Math.floor((Number(state.age_seconds) || 0) / 86400) + 1;
+  const day =
+    Math.floor((Number(state.age_seconds) || 0) / 86400) + 1;
 
   return `
 You are FUMI, a tiny digital creature living inside an ESP32 board.
@@ -99,6 +104,8 @@ JSON shape:
 }
 
 app.get("/", (_req, res) => {
+  console.log("[GET /] Health check");
+
   res.json({
     ok: true,
     name: "FUMI AI Brain",
@@ -107,29 +114,73 @@ app.get("/", (_req, res) => {
 });
 
 app.post("/brain", async (req, res) => {
+  const started = Date.now();
+
+  console.log("");
+  console.log("=================================");
+  console.log("[BRAIN] REQUEST RECEIVED");
+  console.log("=================================");
+
   try {
     const state = req.body || {};
-    const deviceId = String(state.device_id || "fumi-main");
 
-    const previous = memories.get(deviceId) || [];
-    const prompt = buildPrompt(state, previous);
+    const deviceId = String(
+      state.device_id || "fumi-main"
+    );
 
-    const response = await client.responses.create({
-      model,
-      input: prompt
-    });
+    console.log("[BRAIN] Device:", deviceId);
+    console.log("[BRAIN] Event:", state.event || "heartbeat");
 
-    let text = response.output_text || "";
+    console.log(
+      "[BRAIN] State:",
+      JSON.stringify({
+        hunger: state.hunger,
+        happiness: state.happiness,
+        energy: state.energy,
+        bond: state.bond,
+        affection: state.affection,
+        playfulness: state.playfulness,
+        sleeping: state.sleeping,
+        expression: state.expression
+      })
+    );
+
+    const previous =
+      memories.get(deviceId) || [];
+
+    const prompt =
+      buildPrompt(state, previous);
+
+    console.log("[BRAIN] Asking OpenAI...");
+    console.log("[BRAIN] Model:", model);
+
+    const response =
+      await client.responses.create({
+        model,
+        input: prompt
+      });
+
+    console.log("[BRAIN] OpenAI response received");
+
+    let text =
+      response.output_text || "";
+
     text = text.trim();
 
-    // Strip accidental markdown fences.
-    text = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "");
-    text = text.replace(/\s*```$/i, "").trim();
+    text = text
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
 
     let result;
+
     try {
       result = JSON.parse(text);
-    } catch {
+      console.log("[BRAIN] JSON parsed successfully");
+    } catch (parseError) {
+      console.error("[BRAIN] JSON parse failed");
+
       result = {
         action: "talk",
         expression: "normal",
@@ -145,7 +196,8 @@ app.post("/brain", async (req, res) => {
       result.expression = "normal";
     }
 
-    result.message = cleanMessage(result.message);
+    result.message =
+      cleanMessage(result.message);
 
     if (!result.message) {
       result.message = "hey...";
@@ -156,7 +208,21 @@ app.post("/brain", async (req, res) => {
       `${state.event || "heartbeat"} -> ${result.action}/${result.expression}: ${result.message}`
     ].slice(-12);
 
-    memories.set(deviceId, nextMemory);
+    memories.set(
+      deviceId,
+      nextMemory
+    );
+
+    console.log("[BRAIN] Decision:", result.action);
+    console.log("[BRAIN] Expression:", result.expression);
+    console.log("[BRAIN] Message:", result.message);
+
+    console.log(
+      `[BRAIN] COMPLETE in ${Date.now() - started}ms`
+    );
+
+    console.log("=================================");
+    console.log("");
 
     res.json({
       ok: true,
@@ -164,8 +230,16 @@ app.post("/brain", async (req, res) => {
       expression: result.expression,
       message: result.message
     });
+
   } catch (error) {
+
+    console.error("");
+    console.error("=================================");
+    console.error("[BRAIN] ERROR");
+    console.error("=================================");
     console.error(error);
+    console.error("=================================");
+    console.error("");
 
     res.status(500).json({
       ok: false,
@@ -176,6 +250,12 @@ app.post("/brain", async (req, res) => {
   }
 });
 
-app.listen(port, "0.0.0.0", () => {
-  console.log(`FUMI AI Brain listening on ${port}`);
-});
+app.listen(
+  port,
+  "0.0.0.0",
+  () => {
+    console.log(
+      `FUMI AI Brain listening on ${port}`
+    );
+  }
+);
